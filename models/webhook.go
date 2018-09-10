@@ -9,13 +9,13 @@ import (
 	"crypto/sha256"
 	"crypto/tls"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"strings"
 	"time"
 
 	"github.com/go-xorm/xorm"
+	"github.com/json-iterator/go"
 	gouuid "github.com/satori/go.uuid"
 	log "gopkg.in/clog.v1"
 
@@ -97,18 +97,18 @@ type Webhook struct {
 	OrgID        int64
 	URL          string `xorm:"url TEXT"`
 	ContentType  HookContentType
-	Secret       string `xorm:"TEXT"`
-	Events       string `xorm:"TEXT"`
-	*HookEvent   `xorm:"-"`
-	IsSSL        bool `xorm:"is_ssl"`
+	Secret       string     `xorm:"TEXT"`
+	Events       string     `xorm:"TEXT"`
+	*HookEvent   `xorm:"-"` // LEGACY [1.0]: Cannot ignore JSON here, it breaks old backup archive
+	IsSSL        bool       `xorm:"is_ssl"`
 	IsActive     bool
 	HookTaskType HookTaskType
 	Meta         string     `xorm:"TEXT"` // store hook-specific attributes
 	LastStatus   HookStatus // Last delivery status
 
-	Created     time.Time `xorm:"-"`
+	Created     time.Time `xorm:"-" json:"-"`
 	CreatedUnix int64
-	Updated     time.Time `xorm:"-"`
+	Updated     time.Time `xorm:"-" json:"-"`
 	UpdatedUnix int64
 }
 
@@ -126,7 +126,7 @@ func (w *Webhook) AfterSet(colName string, _ xorm.Cell) {
 	switch colName {
 	case "events":
 		w.HookEvent = &HookEvent{}
-		if err = json.Unmarshal([]byte(w.Events), w.HookEvent); err != nil {
+		if err = jsoniter.Unmarshal([]byte(w.Events), w.HookEvent); err != nil {
 			log.Error(3, "Unmarshal [%d]: %v", w.ID, err)
 		}
 	case "created_unix":
@@ -138,7 +138,7 @@ func (w *Webhook) AfterSet(colName string, _ xorm.Cell) {
 
 func (w *Webhook) GetSlackHook() *SlackMeta {
 	s := &SlackMeta{}
-	if err := json.Unmarshal([]byte(w.Meta), s); err != nil {
+	if err := jsoniter.Unmarshal([]byte(w.Meta), s); err != nil {
 		log.Error(2, "GetSlackHook [%d]: %v", w.ID, err)
 	}
 	return s
@@ -151,7 +151,7 @@ func (w *Webhook) History(page int) ([]*HookTask, error) {
 
 // UpdateEvent handles conversion from HookEvent to Events.
 func (w *Webhook) UpdateEvent() error {
-	data, err := json.Marshal(w.HookEvent)
+	data, err := jsoniter.Marshal(w.HookEvent)
 	w.Events = string(data)
 	return err
 }
@@ -418,21 +418,21 @@ type HookTask struct {
 	Type            HookTaskType
 	URL             string `xorm:"TEXT"`
 	Signature       string `xorm:"TEXT"`
-	api.Payloader   `xorm:"-"`
+	api.Payloader   `xorm:"-" json:"-"`
 	PayloadContent  string `xorm:"TEXT"`
 	ContentType     HookContentType
 	EventType       HookEventType
 	IsSSL           bool
 	IsDelivered     bool
 	Delivered       int64
-	DeliveredString string `xorm:"-"`
+	DeliveredString string `xorm:"-" json:"-"`
 
 	// History info.
 	IsSucceed       bool
 	RequestContent  string        `xorm:"TEXT"`
-	RequestInfo     *HookRequest  `xorm:"-"`
+	RequestInfo     *HookRequest  `xorm:"-" json:"-"`
 	ResponseContent string        `xorm:"TEXT"`
-	ResponseInfo    *HookResponse `xorm:"-"`
+	ResponseInfo    *HookResponse `xorm:"-" json:"-"`
 }
 
 func (t *HookTask) BeforeUpdate() {
@@ -456,7 +456,7 @@ func (t *HookTask) AfterSet(colName string, _ xorm.Cell) {
 		}
 
 		t.RequestInfo = &HookRequest{}
-		if err = json.Unmarshal([]byte(t.RequestContent), t.RequestInfo); err != nil {
+		if err = jsoniter.Unmarshal([]byte(t.RequestContent), t.RequestInfo); err != nil {
 			log.Error(3, "Unmarshal[%d]: %v", t.ID, err)
 		}
 
@@ -466,14 +466,14 @@ func (t *HookTask) AfterSet(colName string, _ xorm.Cell) {
 		}
 
 		t.ResponseInfo = &HookResponse{}
-		if err = json.Unmarshal([]byte(t.ResponseContent), t.ResponseInfo); err != nil {
+		if err = jsoniter.Unmarshal([]byte(t.ResponseContent), t.ResponseInfo); err != nil {
 			log.Error(3, "Unmarshal [%d]: %v", t.ID, err)
 		}
 	}
 }
 
 func (t *HookTask) MarshalJSON(v interface{}) string {
-	p, err := json.Marshal(v)
+	p, err := jsoniter.Marshal(v)
 	if err != nil {
 		log.Error(3, "Marshal [%d]: %v", t.ID, err)
 	}
@@ -654,6 +654,8 @@ func (t *HookTask) deliver() {
 
 	timeout := time.Duration(setting.Webhook.DeliverTimeout) * time.Second
 	req := httplib.Post(t.URL).SetTimeout(timeout, timeout).
+		Header("X-Github-Delivery", t.UUID).
+		Header("X-Github-Event", string(t.EventType)).
 		Header("X-Gogs-Delivery", t.UUID).
 		Header("X-Gogs-Signature", t.Signature).
 		Header("X-Gogs-Event", string(t.EventType)).

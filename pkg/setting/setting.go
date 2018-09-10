@@ -70,7 +70,8 @@ var (
 	LocalURL             string
 	OfflineMode          bool
 	DisableRouterLog     bool
-	CertFile, KeyFile    string
+	CertFile             string
+	KeyFile              string
 	TLSMinVersion        string
 	StaticRootPath       string
 	EnableGzip           bool
@@ -187,11 +188,12 @@ var (
 	}
 
 	// Picture settings
-	AvatarUploadPath      string
-	GravatarSource        string
-	DisableGravatar       bool
-	EnableFederatedAvatar bool
-	LibravatarService     *libravatar.Libravatar
+	AvatarUploadPath      		string
+	RepositoryAvatarUploadPath	string
+	GravatarSource        		string
+	DisableGravatar       		bool
+	EnableFederatedAvatar 		bool
+	LibravatarService     		*libravatar.Libravatar
 
 	// Log settings
 	LogRootPath string
@@ -403,7 +405,9 @@ func NewContext() {
 		log.Fatal(2, "Fail to get work directory: %v", err)
 	}
 
-	Cfg, err = ini.Load(bindata.MustAsset("conf/app.ini"))
+	Cfg, err = ini.LoadSources(ini.LoadOptions{
+		IgnoreInlineComment: true,
+	}, bindata.MustAsset("conf/app.ini"))
 	if err != nil {
 		log.Fatal(2, "Fail to parse 'conf/app.ini': %v", err)
 	}
@@ -607,6 +611,11 @@ func NewContext() {
 	forcePathSeparator(AvatarUploadPath)
 	if !filepath.IsAbs(AvatarUploadPath) {
 		AvatarUploadPath = path.Join(workDir, AvatarUploadPath)
+	}
+	RepositoryAvatarUploadPath = sec.Key("REPOSITORY_AVATAR_UPLOAD_PATH").MustString(path.Join(AppDataPath, "repo-avatars"))
+	forcePathSeparator(RepositoryAvatarUploadPath)
+	if !filepath.IsAbs(RepositoryAvatarUploadPath) {
+		RepositoryAvatarUploadPath = path.Join(workDir, RepositoryAvatarUploadPath)
 	}
 	switch source := sec.Key("GRAVATAR_SOURCE").MustString("gravatar"); source {
 	case "duoshuo":

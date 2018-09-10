@@ -29,17 +29,17 @@ var MirrorQueue = sync.NewUniqueQueue(setting.Repository.MirrorQueueLength)
 type Mirror struct {
 	ID          int64
 	RepoID      int64
-	Repo        *Repository `xorm:"-"`
+	Repo        *Repository `xorm:"-" json:"-"`
 	Interval    int         // Hour.
 	EnablePrune bool        `xorm:"NOT NULL DEFAULT true"`
 
 	// Last and next sync time of Git data from upstream
-	LastSync     time.Time `xorm:"-"`
+	LastSync     time.Time `xorm:"-" json:"-"`
 	LastSyncUnix int64     `xorm:"updated_unix"`
-	NextSync     time.Time `xorm:"-"`
+	NextSync     time.Time `xorm:"-" json:"-"`
 	NextSyncUnix int64     `xorm:"next_update_unix"`
 
-	address string `xorm:"-"`
+	address string `xorm:"-" json:"-"`
 }
 
 func (m *Mirror) BeforeInsert() {
@@ -320,7 +320,7 @@ func GetMirrorByRepoID(repoID int64) (*Mirror, error) {
 }
 
 func updateMirror(e Engine, m *Mirror) error {
-	_, err := e.Id(m.ID).AllCols().Update(m)
+	_, err := e.ID(m.ID).AllCols().Update(m)
 	return err
 }
 
@@ -362,7 +362,7 @@ func MirrorUpdate() {
 func SyncMirrors() {
 	// Start listening on new sync requests.
 	for repoID := range MirrorQueue.Queue() {
-		log.Trace("SyncMirrors [repo_id: %d]", repoID)
+		log.Trace("SyncMirrors [repo_id: %s]", repoID)
 		MirrorQueue.Remove(repoID)
 
 		m, err := GetMirrorByRepoID(com.StrTo(repoID).MustInt64())
